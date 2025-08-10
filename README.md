@@ -37,7 +37,7 @@ A modern React.js application that provides AI-powered code analysis and review 
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/ManjeetKumarShaw/code-review-buddy.git
 cd code-review-buddy
 ```
 
