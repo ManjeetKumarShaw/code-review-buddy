@@ -1,16 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Brain, TestTube, Lightbulb, MessageCircle, Copy, Moon, Sun, AlertTriangle, Code, Zap, CheckCircle } from 'lucide-react';
+import { Brain, TestTube, Lightbulb, MessageCircle, Copy, Moon, Sun, AlertTriangle, Code, Zap } from 'lucide-react';
 import { detectLanguage, validateLanguageMatch } from './utils/languageDetection';
 import { AIService } from './utils/aiService';
 import './App.css';
-
-interface AnalysisResult {
-  type: 'explanation' | 'review' | 'improvements' | 'pr-comment';
-  title: string;
-  content: string;
-  loading: boolean;
-  error?: string;
-}
 
 const PROGRAMMING_LANGUAGES = ['Python', 'JavaScript', 'Java', 'C++', 'Other'];
 
@@ -19,22 +11,11 @@ function App() {
   const [code, setCode] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('Python');
   const [languageWarning, setLanguageWarning] = useState('');
-  const [results, setResults] = useState<AnalysisResult[]>([
-    { type: 'explanation', title: 'Code Explanation', content: '', loading: false },
-    { type: 'review', title: 'Code Review', content: '', loading: false },
-    { type: 'improvements', title: 'Improvements', content: '', loading: false },
-    { type: 'pr-comment', title: 'PR Comment', content: '', loading: false }
-  ]);
+  const [analysisResult, setAnalysisResult] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string>('');
   const [realTimeAnalysis, setRealTimeAnalysis] = useState(false);
   const [debounceTimer, setDebounceTimer] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'explanation' | 'review' | 'improvements' | 'pr-comment'>('review');
-
-  // Update result helper function
-  const updateResult = useCallback((type: AnalysisResult['type'], updates: Partial<AnalysisResult>) => {
-    setResults(prev => prev.map(result => 
-      result.type === type ? { ...result, ...updates } : result
-    ));
-  }, []);
 
   useEffect(() => {
     // Apply dark mode class to body
@@ -76,18 +57,21 @@ function App() {
     // Set new timer for debounced analysis
     const timer = setTimeout(async () => {
       try {
-        // Only run review analysis in real-time to avoid overwhelming
+        setIsLoading(true);
+        setError('');
         const response = await AIService.reviewCode(inputCode, language);
         if (response.success && response.data) {
-          updateResult('review', { content: response.data, loading: false });
+          setAnalysisResult(response.data);
         }
+        setIsLoading(false);
       } catch (error) {
         console.error('Real-time analysis error:', error);
+        setIsLoading(false);
       }
     }, 1500); // Wait 1.5 seconds after user stops typing
 
     setDebounceTimer(timer);
-  }, [debounceTimer, realTimeAnalysis, updateResult]);
+  }, [debounceTimer, realTimeAnalysis]);
 
   // Enhanced code change handler
   const handleCodeChange = useCallback((newCode: string) => {
@@ -95,21 +79,23 @@ function App() {
     
     // Clear results when code changes significantly
     if (Math.abs(newCode.length - code.length) > 50) {
-      setResults(prev => prev.map(result => ({ ...result, content: '', error: undefined })));
+      setAnalysisResult('');
+      setError('');
     }
 
     // Trigger real-time analysis
     performRealTimeAnalysis(newCode, selectedLanguage);
   }, [code, selectedLanguage, performRealTimeAnalysis]);
 
-  const handleAnalysis = async (type: AnalysisResult['type']) => {
+  const handleAnalysis = async (type: 'explanation' | 'review' | 'improvements' | 'pr-comment') => {
     if (!code.trim()) {
       alert('Please paste some code first!');
       return;
     }
 
-    setActiveTab(type);
-    updateResult(type, { loading: true, error: undefined });
+    setIsLoading(true);
+    setError('');
+    setAnalysisResult('');
 
     try {
       let response;
@@ -129,12 +115,14 @@ function App() {
       }
 
       if (response.success && response.data) {
-        updateResult(type, { content: response.data, loading: false });
+        setAnalysisResult(response.data);
       } else {
-        updateResult(type, { error: response.error || 'Analysis failed', loading: false });
+        setError(response.error || 'Analysis failed');
       }
     } catch (error) {
-      updateResult(type, { error: 'An unexpected error occurred', loading: false });
+      setError('An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -158,18 +146,6 @@ function App() {
       .replace(/`(.*?)`/g, '<code class="content-code">$1</code>')
       .replace(/\n/g, '<br>');
   };
-
-  const getTabIcon = (type: string) => {
-    switch (type) {
-      case 'explanation': return <Brain className="tab-icon" />;
-      case 'review': return <TestTube className="tab-icon" />;
-      case 'improvements': return <Lightbulb className="tab-icon" />;
-      case 'pr-comment': return <MessageCircle className="tab-icon" />;
-      default: return <Code className="tab-icon" />;
-    }
-  };
-
-  const activeResult = results.find(r => r.type === activeTab);
 
   return (
     <div className="app-container">
@@ -205,7 +181,7 @@ function App() {
                 </div>
                 <span className="toggle-label">
                   <Zap className="toggle-icon" />
-                  <span>Real-time AI</span>
+                  <span>Real-time</span>
                 </span>
               </label>
 
@@ -224,7 +200,7 @@ function App() {
       <main className="main-container">
         {/* Two Column Layout */}
         <div className="two-column-grid">
-          {/* Left Column - Controls and All Results */}
+          {/* Left Column - Controls and Results */}
           <div className="left-section">
             <div className="controls-card">
               <div className="card-header">
@@ -244,12 +220,13 @@ function App() {
                   </select>
                 </div>
                 
+                {/* Analysis Tools Section - Always Above Results */}
                 <div className="tools-section">
                   <h3 className="tools-title">Analysis Tools</h3>
                   <div className="button-group-horizontal">
                     <button
                       onClick={() => handleAnalysis('explanation')}
-                      disabled={results.find(r => r.type === 'explanation')?.loading}
+                      disabled={isLoading}
                       className="analysis-btn btn-explain"
                     >
                       <Brain className="btn-icon" />
@@ -258,7 +235,7 @@ function App() {
 
                     <button
                       onClick={() => handleAnalysis('review')}
-                      disabled={results.find(r => r.type === 'review')?.loading}
+                      disabled={isLoading}
                       className="analysis-btn btn-review"
                     >
                       <TestTube className="btn-icon" />
@@ -267,7 +244,7 @@ function App() {
 
                     <button
                       onClick={() => handleAnalysis('improvements')}
-                      disabled={results.find(r => r.type === 'improvements')?.loading}
+                      disabled={isLoading}
                       className="analysis-btn btn-improve"
                     >
                       <Lightbulb className="btn-icon" />
@@ -276,7 +253,7 @@ function App() {
 
                     <button
                       onClick={() => handleAnalysis('pr-comment')}
-                      disabled={results.find(r => r.type === 'pr-comment')?.loading}
+                      disabled={isLoading}
                       className="analysis-btn btn-pr"
                     >
                       <MessageCircle className="btn-icon" />
@@ -285,120 +262,58 @@ function App() {
                   </div>
                 </div>
 
-                {/* All Results Section - Tab-based Interface */}
-                <div className="results-tab-section">
-                  {/* Horizontal Tab Navigation */}
-                  <div className="results-tab-nav">
-                    <button
-                      onClick={() => setActiveTab('explanation')}
-                      className={`result-tab ${activeTab === 'explanation' ? 'result-tab-active' : ''}`}
-                    >
-                      <Brain className="result-tab-icon" />
-                      <span>Code Explanation</span>
-                      {results.find(r => r.type === 'explanation')?.loading && (
-                        <div className="result-tab-loading"></div>
-                      )}
-                    </button>
-                    
-                    <button
-                      onClick={() => setActiveTab('review')}
-                      className={`result-tab ${activeTab === 'review' ? 'result-tab-active' : ''}`}
-                    >
-                      <TestTube className="result-tab-icon" />
-                      <span>Code Review</span>
-                      {results.find(r => r.type === 'review')?.loading && (
-                        <div className="result-tab-loading"></div>
-                      )}
-                    </button>
-                    
-                    <button
-                      onClick={() => setActiveTab('improvements')}
-                      className={`result-tab ${activeTab === 'improvements' ? 'result-tab-active' : ''}`}
-                    >
-                      <Lightbulb className="result-tab-icon" />
-                      <span>Improvements</span>
-                      {results.find(r => r.type === 'improvements')?.loading && (
-                        <div className="result-tab-loading"></div>
-                      )}
-                    </button>
-                    
-                    <button
-                      onClick={() => setActiveTab('pr-comment')}
-                      className={`result-tab ${activeTab === 'pr-comment' ? 'result-tab-active' : ''}`}
-                    >
-                      <MessageCircle className="result-tab-icon" />
-                      <span>PR Comment</span>
-                      {results.find(r => r.type === 'pr-comment')?.loading && (
-                        <div className="result-tab-loading"></div>
-                      )}
-                    </button>
+                {/* Analysis Results Section - Always Below Tools */}
+                <div className="results-section">
+                  <div className="result-content-header">
+                    <div className="result-content-title-section">
+                      <Code className="tab-icon" />
+                      <h3 className="result-content-title">Analysis Result</h3>
+                    </div>
+                    {analysisResult && !isLoading && (
+                      <button
+                        onClick={() => copyToClipboard(analysisResult)}
+                        className="copy-btn"
+                      >
+                        <Copy className="copy-icon" />
+                      </button>
+                    )}
                   </div>
 
-                  {/* Single Content Area */}
-                  <div className="results-content-area">
-                    {activeResult && (
-                      <>
-                        <div className="result-content-header">
-                          <div className="result-content-title-section">
-                            {getTabIcon(activeResult.type)}
-                            <h3 className="result-content-title">{activeResult.title}</h3>
-                          </div>
-                          {activeResult.content && !activeResult.loading && (
-                            <button
-                              onClick={() => copyToClipboard(activeResult.content)}
-                              className="copy-btn"
-                            >
-                              <Copy className="copy-icon" />
-                            </button>
-                          )}
+                  <div className="result-content-body">
+                    {isLoading && (
+                      <div className="loading-state">
+                        <div className="loading-spinner"></div>
+                        <p className="loading-text">Analyzing code...</p>
+                      </div>
+                    )}
+
+                    {error && (
+                      <div className="error-state">
+                        <AlertTriangle className="error-icon" />
+                        <div>
+                          <h4 className="error-title">Analysis Error</h4>
+                          <p className="error-text">{error}</p>
                         </div>
+                      </div>
+                    )}
 
-                        <div className="result-content-body">
-                          {activeResult.loading && (
-                            <div className="loading-state">
-                              <div className="loading-spinner"></div>
-                              <p className="loading-text">
-                                {activeResult.type === 'explanation' && 'Explaining code...'}
-                                {activeResult.type === 'review' && 'Reviewing code...'}
-                                {activeResult.type === 'improvements' && 'Analyzing improvements...'}
-                                {activeResult.type === 'pr-comment' && 'Generating PR comment...'}
-                              </p>
-                            </div>
-                          )}
+                    {analysisResult && !isLoading && (
+                      <div 
+                        className="content-text"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(analysisResult) }}
+                      />
+                    )}
 
-                          {activeResult.error && (
-                            <div className="error-state">
-                              <AlertTriangle className="error-icon" />
-                              <div>
-                                <h4 className="error-title">Analysis Error</h4>
-                                <p className="error-text">{activeResult.error}</p>
-                              </div>
-                            </div>
-                          )}
-
-                          {activeResult.content && !activeResult.loading && (
-                            <div 
-                              className="content-text"
-                              dangerouslySetInnerHTML={{ __html: renderMarkdown(activeResult.content) }}
-                            />
-                          )}
-
-                          {!activeResult.content && !activeResult.loading && !activeResult.error && (
-                            <div className="empty-state">
-                              <div className="empty-icon">
-                                {getTabIcon(activeResult.type)}
-                              </div>
-                              <h3 className="empty-title">Ready for Analysis</h3>
-                              <p className="empty-text">
-                                Click "{activeResult.type === 'explanation' ? 'Explain' : 
-                                       activeResult.type === 'review' ? 'Review' :
-                                       activeResult.type === 'improvements' ? 'Improve' : 'PR Comment'}" 
-                                button to analyze your code.
-                              </p>
-                            </div>
-                          )}
+                    {!analysisResult && !isLoading && !error && (
+                      <div className="empty-state">
+                        <div className="empty-icon">
+                          <Code className="tab-icon" />
                         </div>
-                      </>
+                        <h3 className="empty-title">Ready for Analysis</h3>
+                        <p className="empty-text">
+                          Select an analysis tool above to analyze your code.
+                        </p>
+                      </div>
                     )}
                   </div>
                 </div>
